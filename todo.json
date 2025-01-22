@@ -1,0 +1,14 @@
+[
+  {
+    "task": "check_water_level",
+    "status": ""
+  },
+  {
+    "task": "review_code",
+    "status": "completed"
+  },
+  {
+    "task": "write_meeting_notes",
+    "status": "in-progress"
+  }
+]

@@ -1,0 +1,19 @@
+body {
+  display: flex;
+  justify-content: center; /* Horizontally center the content */
+  align-items: center; /* Vertically center the content */
+  height: 100vh; /* Make sure the body takes full height of the viewport */
+  margin: 0; /* Remove default margin */
+  background-color: #121212; /* Dark background color */
+}
+
+#time {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #fff;
+  background-color: rgba(0, 0, 0, 0); /* Semi-transparent background */
+  padding: 15px;
+  text-align: center;
+  width: 100%;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
