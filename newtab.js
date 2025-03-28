@@ -9,6 +9,12 @@ function updateTime() {
   timeElement.textContent = `${currentTime}`;
 }
 
+newTodoInput.addEventListener("keypress", (event) => {
+  if (event.key === "Enter") {
+    addNewTodo();
+  }
+});
+
 // Function to load todos from storage or initialize from JSON
 async function initializeTodos() {
   const storedTodos = await getTodosFromStorage();
@@ -46,7 +52,8 @@ function saveTodosToStorage(todos) {
 
 // Function to display todos with checkboxes
 function displayTodos(todos) {
-  todoListElement.innerHTML = "";
+  const todoListElement = document.getElementById("todo-list");
+  todoListElement.innerHTML = ""; // Clear existing todos
 
   todos.forEach((todo, index) => {
     const todoItem = document.createElement("div");
@@ -65,15 +72,15 @@ function displayTodos(todos) {
     task.style.textDecoration = checkbox.checked ? "line-through" : "none";
 
     const deleteButton = document.createElement("button");
-    deleteButton.textContent = "❌"; // You can use any icon or text
+    deleteButton.textContent = "❌";
     deleteButton.style.fontSize = "1.2rem";
     deleteButton.style.background = "transparent";
     deleteButton.style.border = "none";
     deleteButton.style.color = "#f00";
     deleteButton.style.cursor = "pointer";
     deleteButton.addEventListener("click", () => {
-      todoListElement.removeChild(todoItem); // Remove the todo item from the list
-      deleteTodo(index); // Assuming you have a function to update your data when deleting
+      deleteTodo(index);
+      displayTodos(todos.filter((_, i) => i !== index)); // Re-render list
     });
 
     todoItem.appendChild(checkbox);
@@ -82,6 +89,7 @@ function displayTodos(todos) {
     todoListElement.appendChild(todoItem);
   });
 }
+
 
 // Function to update a todo's status
 async function updateTodoStatus(index, isCompleted) {
