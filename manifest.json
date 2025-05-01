@@ -3,12 +3,25 @@
   "name": "New tab tasks",
   "version": "1.0",
   "description": "Help managing task in a new tab chrome homepage",
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["https://*/*", "http://*/*"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
   "action": {
+    "default_icon": "icon.png",
     "default_title": "New tab"
   },
   "chrome_url_overrides": {
