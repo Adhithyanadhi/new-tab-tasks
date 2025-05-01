@@ -1,144 +1,150 @@
-const timeElement = document.getElementById("time");
-const todoListElement = document.getElementById("todo-list");
-const newTodoInput = document.getElementById("new-todo-input");
-const addTodoButton = document.getElementById("add-todo-button");
-
-// Function to update the current time
-function updateTime() {
-  const currentTime = new Date().toLocaleTimeString();
-  timeElement.textContent = `${currentTime}`;
-}
-
-newTodoInput.addEventListener("keypress", (event) => {
-  if (event.key === "Enter") {
-    addNewTodo();
-  }
-});
-
-// Function to load todos from storage or initialize from JSON
-async function initializeTodos() {
-  const storedTodos = await getTodosFromStorage();
-
-  if (storedTodos && storedTodos.length > 0) {
-    displayTodos(storedTodos);
-  } else {
-    try {
-      const response = await fetch("todo.json");
-      const todos = await response.json();
-      // saveTodosToStorage(todos);
-      displayTodos(todos);
-    } catch (error) {
-      console.error("Error fetching todos:", error);
-      todoListElement.textContent = "Failed to load tasks.";
-    }
-  }
-}
-
-// Function to get todos from Chrome storage
-function getTodosFromStorage() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get("todos", (result) => {
-      resolve(result.todos || []);
-    });
-  });
-}
-
-// Function to save todos to Chrome storage
-function saveTodosToStorage(todos) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ todos }, resolve);
-  });
-}
-
-// Function to display todos with checkboxes
-function displayTodos(todos) {
+document.addEventListener("DOMContentLoaded", () => {
+  const timeElement = document.getElementById("time");
   const todoListElement = document.getElementById("todo-list");
-  todoListElement.innerHTML = ""; // Clear existing todos
+  const newTodoInput = document.getElementById("new-todo-input");
+  const addTodoButton = document.getElementById("add-todo-button");
+  const nameInput = document.getElementById("name-input");
 
-  todos.forEach((todo, index) => {
-    const todoItem = document.createElement("div");
-    todoItem.className = "todo-item";
+  // ---- ⏰ TIME ----
+  function updateTime() {
+    const currentTime = new Date().toLocaleTimeString();
+    timeElement.textContent = currentTime;
+  }
 
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.style.transform = "scale(1.5)";
-    checkbox.checked = todo.status === "completed";
-    checkbox.addEventListener("change", () =>
-      updateTodoStatus(index, checkbox.checked)
-    );
+  setInterval(updateTime, 1000);
+  updateTime();
 
-    const task = document.createElement("span");
-    task.textContent = todo.task;
-    task.style.textDecoration = checkbox.checked ? "line-through" : "none";
-
-    const deleteButton = document.createElement("button");
-    deleteButton.textContent = "❌";
-    deleteButton.style.fontSize = "1.2rem";
-    deleteButton.style.background = "transparent";
-    deleteButton.style.border = "none";
-    deleteButton.style.color = "#f00";
-    deleteButton.style.cursor = "pointer";
-    deleteButton.addEventListener("click", () => {
-      deleteTodo(index);
-      displayTodos(todos.filter((_, i) => i !== index)); // Re-render list
+  // ---- 📝 TODOS ----
+  async function getTodosFromStorage() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get("todos", (result) => {
+        resolve(result.todos || []);
+      });
     });
+  }
 
-    todoItem.appendChild(checkbox);
-    todoItem.appendChild(task);
-    todoItem.appendChild(deleteButton);
-    todoListElement.appendChild(todoItem);
-  });
-}
+  async function saveTodosToStorage(todos) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ todos }, resolve);
+    });
+  }
 
+  function displayTodos(todos) {
+    todoListElement.innerHTML = "";
 
-// Function to update a todo's status
-async function updateTodoStatus(index, isCompleted) {
-  const todos = await getTodosFromStorage();
-  todos[index].status = isCompleted ? "completed" : "pending";
-  await saveTodosToStorage(todos);
-  displayTodos(todos);
-}
+    todos.forEach((todo, index) => {
+      const todoItem = document.createElement("div");
+      todoItem.className = "todo-item";
 
-async function deleteTodo(index) {
-  const todos = await getTodosFromStorage();
-  todos.splice(index, 1);
-  await saveTodosToStorage(todos);
-  displayTodos(todos);
-}
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.style.transform = "scale(1.5)";
+      checkbox.checked = todo.status === "completed";
+      checkbox.addEventListener("change", async () => {
+        todos[index].status = checkbox.checked ? "completed" : "pending";
+        await saveTodosToStorage(todos);
+        displayTodos(todos);
+      });
 
-// Function to add a new todo
-// Function to add a new todo
-async function addNewTodo() {
+      const task = document.createElement("span");
+      task.textContent = todo.task;
+      task.style.textDecoration = checkbox.checked ? "line-through" : "none";
+
+      const deleteButton = document.createElement("button");
+      deleteButton.textContent = "❌";
+      deleteButton.style.fontSize = "1.2rem";
+      deleteButton.style.background = "transparent";
+      deleteButton.style.border = "none";
+      deleteButton.style.color = "#f00";
+      deleteButton.style.cursor = "pointer";
+      deleteButton.addEventListener("click", async () => {
+        todos.splice(index, 1);
+        await saveTodosToStorage(todos);
+        displayTodos(todos);
+      });
+
+      todoItem.appendChild(checkbox);
+      todoItem.appendChild(task);
+      todoItem.appendChild(deleteButton);
+      todoListElement.appendChild(todoItem);
+    });
+  }
+
+  async function initializeTodos() {
+    let todos = await getTodosFromStorage();
+
+    if (!todos.length) {
+      try {
+        const response = await fetch("todo.json");
+        todos = await response.json();
+        saveTodosToStorage(todos);
+      } catch (error) {
+        console.error("Error fetching todos:", error);
+        todoListElement.textContent = "Failed to load tasks.";
+        return;
+      }
+    }
+
+    displayTodos(todos);
+  }
+
+  async function addNewTodo() {
     const newTask = newTodoInput.value.trim();
     if (!newTask) {
       alert("Please enter a valid task!");
       return;
     }
-  
-    // Retrieve existing todos from storage
+
     const todos = await getTodosFromStorage();
-  
-    // Add the new todo to the list
     todos.push({ task: newTask, status: "pending" });
-  
-    // Save the updated list back to Chrome storage
-    chrome.storage.local.set({ todos }, () => {
-      // Confirm that the data has been saved successfully
-      console.log("New todo saved:", todos);
-  
-      // Display the updated todo list
-      displayTodos(todos);
-    });
-  
-    // Clear the input field
+    await saveTodosToStorage(todos);
+    displayTodos(todos);
     newTodoInput.value = "";
   }
-  
 
-// Initialize the page
-updateTime();
-setInterval(updateTime, 1000);
-initializeTodos();
+  addTodoButton.addEventListener("click", addNewTodo);
+  newTodoInput.addEventListener("keypress", (event) => {
+    if (event.key === "Enter") {
+      addNewTodo();
+    }
+  });
 
-// Add event listener for the add button
-addTodoButton.addEventListener("click", addNewTodo);
+  // ---- 👤 USERNAME ----
+  async function getUserNameFromStorage() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get("user_name", (result) => {
+        resolve(result.user_name || "");
+      });
+    });
+  }
+
+  async function saveUserNameToStorage(userName) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ user_name: userName }, resolve);
+    });
+  }
+
+  async function setupUserNameInput() {
+    const savedName = await getUserNameFromStorage();
+    if (savedName) {
+      nameInput.value = savedName;
+    }
+
+    async function save() {
+      const typedName = nameInput.value.trim();
+      await saveUserNameToStorage(typedName);
+    }
+
+    nameInput.addEventListener("blur", save);
+    nameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        nameInput.blur(); // triggers blur handler and saves
+      }
+    });
+  }
+
+  // ---- 🚀 INIT ----
+  initializeTodos();
+  setupUserNameInput();
+});

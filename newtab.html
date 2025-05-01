@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>New tab</title>
-  <link rel="icon" type="image/png" href="icon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
   <style>
     body {
       font-family: 'Roboto', sans-serif;
@@ -30,6 +30,29 @@
       font-size: 3.5rem;
       letter-spacing: 1px;
     }
+
+    #name-input {
+      color: #fff;
+      border: none;
+      border-bottom: 2px solid #000;
+      outline: none;
+      font-size: inherit;
+      /* Match h1 font size */
+      background: transparent;
+      width: 250px;
+      text-align: center;
+      vertical-align: baseline;
+      /* Align with text baseline */
+      padding: 0;
+      /* Remove extra padding */
+      margin: 0;
+      /* Remove extra margin */
+    }
+
+    #name-input::placeholder {
+      color: #fff;
+    }
+
 
     #todo-list-container {
       width: 70%;
@@ -143,8 +166,8 @@
 
 <body>
   <div id="welcome">
-    <h1>Welcome, Adhithyan!</h1>
-    <div id="time" class="time-element"></div>
+    <h1 id="user-name">Welcome, <input type="text" id="name-input" placeholder="__________"></h1>
+    <div class="time" id="time" style="font-size: 2rem;"></div>
   </div>
 
   <div id="todo-list-container">
