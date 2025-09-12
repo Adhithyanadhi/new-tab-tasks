@@ -4,6 +4,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const newTodoInput = document.getElementById("new-todo-input");
   const addTodoButton = document.getElementById("add-todo-button");
   const nameInput = document.getElementById("name-input");
+  const newGroupInput = document.getElementById("new-group-input");
+  const groupTabs = document.getElementById("group-tabs");
+
+  let selectedGroup = ""; // default to Ungrouped
 
   // ---- ⏰ TIME ----
   function updateTime() {
@@ -29,10 +33,46 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function renderTabsFromTodos(todos) {
+    groupTabs.innerHTML = "";
+
+    // Build unique set of groups, default group first
+    const groupSet = new Set([""]);
+    todos.forEach((t) => groupSet.add((t.group || "").trim()));
+
+    const groups = Array.from(groupSet).sort((a, b) => {
+      if (a && b) return a.localeCompare(b);
+      if (a && !b) return 1; // ensure "" (Ungrouped) first
+      if (!a && b) return -1;
+      return 0;
+    });
+
+    groups.forEach((g) => {
+      const btn = document.createElement("button");
+      btn.className = "group-tab" + (g === selectedGroup ? " active" : "");
+      btn.textContent = g || "Ungrouped";
+      btn.addEventListener("click", async () => {
+        selectedGroup = g;
+        // keep group input in sync; if user adds without specifying group, use selectedGroup
+        if (newGroupInput) newGroupInput.placeholder = g ? `Group: ${g}` : "Group (optional)";
+        const todosNow = await getTodosFromStorage();
+        renderTabsFromTodos(todosNow);
+        displayTodos(todosNow);
+      });
+      groupTabs.appendChild(btn);
+    });
+  }
+
   function displayTodos(todos) {
     todoListElement.innerHTML = "";
 
-    todos.forEach((todo, index) => {
+    // Filter by selectedGroup
+    const filtered = todos.filter((t) => ((t.group || "").trim() === (selectedGroup || "").trim()));
+
+    // Maintain original tile rendering (no grouping titles when tabs are used)
+    filtered.forEach((todo, indexInFiltered) => {
+      const indexInAll = todos.indexOf(todo);
+
       const todoItem = document.createElement("div");
       todoItem.className = "todo-item";
 
@@ -41,7 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
       checkbox.style.transform = "scale(1.5)";
       checkbox.checked = todo.status === "completed";
       checkbox.addEventListener("change", async () => {
-        todos[index].status = checkbox.checked ? "completed" : "pending";
+        todos[indexInAll].status = checkbox.checked ? "completed" : "pending";
         await saveTodosToStorage(todos);
         displayTodos(todos);
       });
@@ -58,8 +98,9 @@ document.addEventListener("DOMContentLoaded", () => {
       deleteButton.style.color = "#f00";
       deleteButton.style.cursor = "pointer";
       deleteButton.addEventListener("click", async () => {
-        todos.splice(index, 1);
+        todos.splice(indexInAll, 1);
         await saveTodosToStorage(todos);
+        renderTabsFromTodos(todos);
         displayTodos(todos);
       });
 
@@ -80,11 +121,23 @@ document.addEventListener("DOMContentLoaded", () => {
         saveTodosToStorage(todos);
       } catch (error) {
         console.error("Error fetching todos:", error);
-        todoListElement.textContent = "Failed to load tasks.";
-        return;
+        // Fall back to empty list but still render tabs
+        todos = [];
       }
     }
 
+    // Migration: ensure every todo has a `group` field
+    const needsMigration = todos.some((t) => typeof t.group === "undefined");
+    if (needsMigration) {
+      todos = todos.map((t) => ({ ...t, group: (t.group || "").trim() }));
+      await saveTodosToStorage(todos);
+    }
+
+    // Default selected group is Ungrouped
+    selectedGroup = "";
+    if (newGroupInput) newGroupInput.placeholder = "Group (optional)";
+
+    renderTabsFromTodos(todos);
     displayTodos(todos);
   }
 
@@ -95,11 +148,24 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    // Use typed group or fallback to selected tab
+    const typedGroup = newGroupInput ? newGroupInput.value.trim() : "";
+    const group = typedGroup || selectedGroup || "";
+
     const todos = await getTodosFromStorage();
-    todos.push({ task: newTask, status: "pending" });
+    todos.push({ task: newTask, group, status: "pending" });
     await saveTodosToStorage(todos);
-    displayTodos(todos);
+
+    // Switch to the task's group so the tab appears active
+    selectedGroup = group;
+    if (newGroupInput) newGroupInput.placeholder = group ? `Group: ${group}` : "Group (optional)";
+
+    // Clear inputs; keep the selected tab
     newTodoInput.value = "";
+    if (newGroupInput) newGroupInput.value = "";
+
+    renderTabsFromTodos(todos);
+    displayTodos(todos);
   }
 
   addTodoButton.addEventListener("click", addNewTodo);
@@ -108,6 +174,13 @@ document.addEventListener("DOMContentLoaded", () => {
       addNewTodo();
     }
   });
+  if (newGroupInput) {
+    newGroupInput.addEventListener("keypress", (event) => {
+      if (event.key === "Enter") {
+        addNewTodo();
+      }
+    });
+  }
 
   // ---- 👤 USERNAME ----
   async function getUserNameFromStorage() {
@@ -148,3 +221,4 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeTodos();
   setupUserNameInput();
 });
+

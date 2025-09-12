@@ -65,20 +65,22 @@
 
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      /* Center content vertically */
-      align-items: center;
+      justify-content: flex-start;
+      /* Align content to top */
+      align-items: stretch;
     }
 
     #add-todo-container {
       display: flex;
       justify-content: center;
-      margin-bottom: 50px;
+      margin-bottom: 16px;
       width: 100%;
+      flex-wrap: wrap;
+      gap: 10px;
     }
 
     #new-todo-input {
-      flex: 1;
+      flex: 1 1 280px;
       max-width: 400px;
       padding: 12px 20px;
       border: 1px solid #666;
@@ -104,15 +106,48 @@
       font-size: 1.1rem;
     }
 
-    /* Updated Grid Layout */
+    /* Tabs */
+    #group-tabs {
+      width: 100%;
+      display: flex;
+      gap: 8px;
+      margin: 0 0 16px;
+      overflow-x: auto;
+      min-height: 36px;
+      align-items: center;
+    }
+
+    .group-tab {
+      padding: 8px 12px;
+      border-radius: 14px;
+      background: #2a2a2a;
+      color: #ddd;
+      cursor: pointer;
+      border: 1px solid #444;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .group-tab.active {
+      background: #2575fc;
+      color: #fff;
+      border-color: #2575fc;
+    }
+
+    /* Tiled list layout */
     #todo-list {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      justify-content: flex-start;
-      width: 100%;
+      gap: 10px 10px;
       justify-content: center;
+      align-content: flex-start;
+      flex-direction: row;
+      width: 100%;
     }
+
+    /* Remove grouped section visuals when using tabs */
+    .group-section { display: contents; }
+    .group-title { display: none; }
 
     /* Todo Item - Dynamic Width */
 
@@ -120,8 +155,8 @@
     .todo-item {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      /* Ensures left, center, right alignment */
+      justify-content: flex-start;
+      gap: 12px;
       background: #444;
       padding: 15px;
       border-radius: 8px;
@@ -129,7 +164,7 @@
       font-weight: 500;
       min-width: 200px;
       max-width: fit-content;
-      flex-grow: 1;
+      flex: 0 1 auto;
       word-wrap: break-word;
       white-space: normal;
     }
@@ -140,8 +175,6 @@
       color: #f00;
       font-size: 1.2rem;
       cursor: pointer;
-      margin-left: auto;
-      /* Pushes button to the right */
     }
 
     .todo-item button:hover {
@@ -156,10 +189,25 @@
     }
 
     .todo-item span {
-      flex: 1;
-      /* Allows text to take remaining space */
+      flex: 0 0 auto;
       text-align: center;
-      /* Centers the text */
+    }
+
+    /* Grouped sections */
+    .group-section {
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 0;
+    }
+
+    .group-title {
+      width: 100%;
+      font-size: 1.2rem;
+      color: #ddd;
+      margin: 0 0 5px;
+      text-align: left;
     }
   </style>
 </head>
@@ -173,8 +221,10 @@
   <div id="todo-list-container">
     <div id="add-todo-container">
       <input type="text" id="new-todo-input" placeholder="Add a new task..." />
+      <input type="text" id="new-group-input" placeholder="Group (optional)" style="flex: 0 1 180px; max-width: 220px; padding: 12px 20px; border: 1px solid #666; border-radius: 10px; background: #333; color: white; font-size: 1.1rem; margin-right: 15px;" />
       <button id="add-todo-button">+</button>
     </div>
+    <div id="group-tabs"></div>
     <div id="todo-list"></div>
   </div>
 
