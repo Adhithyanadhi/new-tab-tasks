@@ -39,6 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Build unique set of groups, default group first
     const groupSet = new Set([""]);
     todos.forEach((t) => groupSet.add((t.group || "").trim()));
+    groupSet.add((selectedGroup || "").trim());
 
     const groups = Array.from(groupSet).sort((a, b) => {
       if (a && b) return a.localeCompare(b);
@@ -53,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.textContent = g || "Ungrouped";
       btn.addEventListener("click", async () => {
         selectedGroup = g;
+        await saveSelectedGroupToStorage(selectedGroup);
         // keep group input in sync; if user adds without specifying group, use selectedGroup
         if (newGroupInput) newGroupInput.placeholder = g ? `Group: ${g}` : "Group (optional)";
         const todosNow = await getTodosFromStorage();
@@ -134,8 +136,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Default selected group is Ungrouped
-    selectedGroup = "";
-    if (newGroupInput) newGroupInput.placeholder = "Group (optional)";
+    selectedGroup = (await getSelectedGroupFromStorage()) || "";
+    if (newGroupInput) newGroupInput.placeholder = selectedGroup ? `Group: ${selectedGroup}` : "Group (optional)";
 
     renderTabsFromTodos(todos);
     displayTodos(todos);
@@ -158,6 +160,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Switch to the task's group so the tab appears active
     selectedGroup = group;
+    await saveSelectedGroupToStorage(selectedGroup);
     if (newGroupInput) newGroupInput.placeholder = group ? `Group: ${group}` : "Group (optional)";
 
     // Clear inputs; keep the selected tab
@@ -179,6 +182,21 @@ document.addEventListener("DOMContentLoaded", () => {
       if (event.key === "Enter") {
         addNewTodo();
       }
+    });
+  }
+
+  // ---- 📌 SELECTED GROUP PERSISTENCE ----
+  async function getSelectedGroupFromStorage() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get("selected_group", (result) => {
+        resolve(typeof result.selected_group === "string" ? result.selected_group : "");
+      });
+    });
+  }
+
+  async function saveSelectedGroupToStorage(groupName) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ selected_group: groupName || "" }, resolve);
     });
   }
 
