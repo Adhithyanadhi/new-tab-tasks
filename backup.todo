@@ -1,0 +1,57 @@
+[
+    {
+        "group": "",
+        "status": "pending",
+        "task": "implement bfs, makes more sense in user-experience"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "' '.js looks only for files with .js extension - new feature"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "ctrl + enter, to open in a side panel view"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "comments are not considered in fn extraction, comments can contain any shit"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "completed task should be at bottom"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "bf - missing functions in the search list"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "update demo vdo with better claraity"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "cleanup messed-up cache for all users"
+    },
+    {
+        "group": "",
+        "status": "pending",
+        "task": "release in cursor"
+    },
+    {
+        "group": "high-priority",
+        "status": "pending",
+        "task": "read about impl of B+ trees"
+    },
+    {
+        "group": "high-priority",
+        "status": "pending",
+        "task": "on lid close - suspend"
+    }
+]
