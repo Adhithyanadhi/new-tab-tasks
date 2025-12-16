@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const newGroupInput = document.getElementById("new-group-input");
   const groupTabs = document.getElementById("group-tabs");
 
-  let selectedGroup = ""; // default to Ungrouped
+  let selectedGroup = "";
 
   // -----------------------------
   // Consolidated Storage + Sync
@@ -16,50 +16,73 @@ document.addEventListener("DOMContentLoaded", () => {
   const SYNC_CONFIG_KEY = "sync_config_v1";         // { base, syncId, token }
   const DIRTY_KEY = "sync_dirty";                   // local changes pending push
 
-  // Gate network sync: at most once per day (attempt-based, so failures won't spam 100 times/day)
+  // Network sync gating: at most once/day (attempt-based). Use manual sync icon if needed.
   const LAST_SYNC_ATTEMPT_KEY = "last_sync_attempt_ms";
   const LAST_SYNC_SUCCESS_KEY = "last_sync_success_ms";
   const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-  // Best-effort lock so multiple tabs don't all sync at once
+  // Best-effort lock so multiple tabs don't sync together
   const SYNC_LOCK_KEY = "sync_lock_until_ms";
-  const SYNC_LOCK_TTL_MS = 2 * 60 * 1000; // 2 minutes
+  const SYNC_LOCK_TTL_MS = 2 * 60 * 1000; // 2 min
+
+  // Task ID generation (monotonic on this device)
+  const LAST_TASK_ID_KEY = "last_task_id_ms";
 
   let appState = {
     todos: [],
+    deleted_task_ids: {}, // { [task_id]: deletedAtMs }
     selected_group: "",
     user_name: "",
-    updatedAt: 0, // ms
+    updatedAt: 0,
   };
 
   // -----------------------------
-  // Force Sync UI (same page)
+  // Sync Icon (top-right, white)
   // -----------------------------
-  const topBar = document.createElement("div");
-  topBar.style.display = "flex";
-  topBar.style.justifyContent = "space-between";
-  topBar.style.alignItems = "center";
-  topBar.style.gap = "12px";
-  topBar.style.marginBottom = "12px";
+  const syncIconBtn = document.createElement("button");
+  syncIconBtn.type = "button";
+  syncIconBtn.setAttribute("aria-label", "Sync now");
+  syncIconBtn.title = "Sync now";
 
-  const forceSyncBtn = document.createElement("button");
-  forceSyncBtn.textContent = "Sync now";
-  forceSyncBtn.style.padding = "8px 12px";
-  forceSyncBtn.style.borderRadius = "8px";
-  forceSyncBtn.style.border = "1px solid #444";
-  forceSyncBtn.style.background = "transparent";
-  forceSyncBtn.style.cursor = "pointer";
+  syncIconBtn.style.position = "fixed";
+  syncIconBtn.style.top = "14px";
+  syncIconBtn.style.right = "14px";
+  syncIconBtn.style.background = "transparent";
+  syncIconBtn.style.border = "none";
+  syncIconBtn.style.padding = "6px";
+  syncIconBtn.style.cursor = "pointer";
+  syncIconBtn.style.zIndex = "9999";
+  syncIconBtn.style.opacity = "0.9";
 
-  const syncStatus = document.createElement("span");
+//  Cloud sync vibe (sync arrows + tiny cloud shape)
+syncIconBtn.innerHTML = `
+  <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path fill="#ffffff" d="M19.35 10.04A7 7 0 0 0 5.09 8.87 4.5 4.5 0 0 0 5.5 18H10v-2H5.5A2.5 2.5 0 0 1 5 11.05l.15-.02.92-.12.34-.86A5 5 0 0 1 16.9 11l.1 1h1A2.5 2.5 0 0 1 18.5 17H18v2h.5A4.5 4.5 0 0 0 19.35 10.04Z"/>
+    <path fill="#ffffff" d="M14 13v-2l-3 3 3 3v-2h4v-2h-4Z"/>
+  </svg>
+`;
+
+  const syncStatus = document.createElement("div");
+  syncStatus.style.position = "fixed";
+  syncStatus.style.top = "42px";
+  syncStatus.style.right = "14px";
   syncStatus.style.fontSize = "12px";
   syncStatus.style.opacity = "0.85";
+  syncStatus.style.zIndex = "9999";
+  syncStatus.style.pointerEvents = "none";
   syncStatus.textContent = "";
 
-  topBar.appendChild(forceSyncBtn);
-  topBar.appendChild(syncStatus);
+  document.body.appendChild(syncIconBtn);
+  document.body.appendChild(syncStatus);
 
-  // Insert at top of body (keeps your existing HTML untouched)
-  document.body.insertBefore(topBar, document.body.firstChild);
+  function setStatus(msg, { clearAfterMs = 0 } = {}) {
+    syncStatus.textContent = msg || "";
+    if (clearAfterMs > 0) {
+      setTimeout(() => {
+        if (syncStatus.textContent === msg) syncStatus.textContent = "";
+      }, clearAfterMs);
+    }
+  }
 
   // -----------------------------
   // Helpers
@@ -76,15 +99,37 @@ document.addEventListener("DOMContentLoaded", () => {
     return new Promise((resolve) => chrome.storage.local.set(obj, resolve));
   }
 
+  function toMs(x) {
+    const n = Number(x);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
   function normalizeTodos(todos) {
     const arr = Array.isArray(todos) ? todos : [];
-    return arr
-      .map((t) => ({
-        task: String(t?.task ?? "").trim(),
-        group: String(t?.group ?? "").trim(),
-        status: (t?.status === "completed" ? "completed" : "pending"),
-      }))
-      .filter((t) => t.task.length > 0);
+    const out = [];
+    for (const t of arr) {
+      const task = String(t?.task ?? "").trim();
+      if (!task) continue;
+
+      const task_id = toMs(t?.task_id); // may be 0 during migration; fixed later
+      const group = String(t?.group ?? "").trim();
+      const status = (t?.status === "completed") ? "completed" : "pending";
+      const task_updated_at = toMs(t?.task_updated_at) || task_id || 0;
+
+      out.push({ task_id, task, group, status, task_updated_at });
+    }
+    return out;
+  }
+
+  function normalizeDeletedMap(x) {
+    if (!x || typeof x !== "object") return {};
+    const out = {};
+    for (const [k, v] of Object.entries(x)) {
+      const id = toMs(k);
+      const deletedAt = toMs(v);
+      if (id && deletedAt) out[String(id)] = deletedAt;
+    }
+    return out;
   }
 
   function rerenderFromState() {
@@ -97,27 +142,37 @@ document.addEventListener("DOMContentLoaded", () => {
     displayTodos(appState.todos || []);
   }
 
-  function setStatus(msg, { clearAfterMs = 0 } = {}) {
-    syncStatus.textContent = msg || "";
-    if (clearAfterMs > 0) {
-      setTimeout(() => {
-        // don't clear if it changed since
-        if (syncStatus.textContent === msg) syncStatus.textContent = "";
-      }, clearAfterMs);
-    }
+  // -----------------------------
+  // Task ID generation
+  // -----------------------------
+  let lastGeneratedTaskId = 0;
+
+  async function initLastTaskId() {
+    const r = await storageGet([LAST_TASK_ID_KEY]);
+    lastGeneratedTaskId = Math.max(lastGeneratedTaskId, toMs(r[LAST_TASK_ID_KEY]));
+  }
+
+  async function generateTaskId() {
+    let id = nowMs();
+    if (id <= lastGeneratedTaskId) id = lastGeneratedTaskId + 1;
+    lastGeneratedTaskId = id;
+    await storageSet({ [LAST_TASK_ID_KEY]: id });
+    return id;
   }
 
   // -----------------------------
   // Consolidated State IO (Local)
   // -----------------------------
   async function loadState() {
-    // Migration: if consolidated state doesn't exist, import old keys
+    // Backward compatibility: import old per-key storage if consolidated missing
     const r = await storageGet([STATE_KEY, "todos", "selected_group", "user_name"]);
+
     let st = r[STATE_KEY];
 
     if (!st || typeof st !== "object") {
       st = {
         todos: normalizeTodos(r.todos || []),
+        deleted_task_ids: {},
         selected_group: typeof r.selected_group === "string" ? r.selected_group : "",
         user_name: typeof r.user_name === "string" ? r.user_name : "",
         updatedAt: 0,
@@ -125,9 +180,10 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       st = {
         todos: normalizeTodos(st.todos || []),
+        deleted_task_ids: normalizeDeletedMap(st.deleted_task_ids),
         selected_group: typeof st.selected_group === "string" ? st.selected_group : "",
         user_name: typeof st.user_name === "string" ? st.user_name : "",
-        updatedAt: Number(st.updatedAt || 0),
+        updatedAt: toMs(st.updatedAt),
       };
     }
 
@@ -138,7 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function persistState({ markDirty = false } = {}) {
     appState.updatedAt = nowMs();
 
-    // Write consolidated + mirror legacy keys for compatibility/debugging
+    // Write consolidated + mirror legacy keys (so old debug expectations still work)
     const payload = {
       [STATE_KEY]: appState,
       todos: appState.todos,
@@ -151,8 +207,36 @@ document.addEventListener("DOMContentLoaded", () => {
     await storageSet(payload);
   }
 
+  async function migrateStateIfNeeded() {
+    let changed = false;
+
+    if (!appState.deleted_task_ids || typeof appState.deleted_task_ids !== "object") {
+      appState.deleted_task_ids = {};
+      changed = true;
+    }
+
+    // Ensure every todo has task_id and task_updated_at
+    for (const t of appState.todos) {
+      if (!toMs(t.task_id)) {
+        t.task_id = await generateTaskId();
+        changed = true;
+      }
+      if (!toMs(t.task_updated_at)) {
+        t.task_updated_at = toMs(t.task_id) || nowMs();
+        changed = true;
+      }
+    }
+
+    // Sort deterministically by creation time
+    appState.todos.sort((a, b) => toMs(a.task_id) - toMs(b.task_id));
+
+    if (changed) {
+      await persistState({ markDirty: true });
+    }
+  }
+
   // -----------------------------
-  // Remote Sync (Cloudflare Worker)
+  // Remote Sync (Cloudflare Worker merge)
   // -----------------------------
   async function getSyncConfig() {
     const r = await storageGet([SYNC_CONFIG_KEY]);
@@ -169,7 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function shouldAttemptSyncNow() {
     const r = await storageGet([LAST_SYNC_ATTEMPT_KEY]);
-    const lastAttempt = Number(r[LAST_SYNC_ATTEMPT_KEY] || 0);
+    const lastAttempt = toMs(r[LAST_SYNC_ATTEMPT_KEY]);
     return (nowMs() - lastAttempt) >= SYNC_INTERVAL_MS;
   }
 
@@ -186,7 +270,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function acquireSyncLock() {
     const r = await storageGet([SYNC_LOCK_KEY]);
-    const lockUntil = Number(r[SYNC_LOCK_KEY] || 0);
+    const lockUntil = toMs(r[SYNC_LOCK_KEY]);
     if (lockUntil > nowMs()) return false;
     await storageSet({ [SYNC_LOCK_KEY]: nowMs() + SYNC_LOCK_TTL_MS });
     return true;
@@ -206,11 +290,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (resp.status === 401) throw new Error("unauthorized (token mismatch)");
     if (!resp.ok) throw new Error(`GET failed: ${resp.status}`);
 
-    // null OR { updatedAt, data }
-    return await resp.json();
+    return await resp.json(); // null OR { updatedAt, data }
   }
 
-  async function remotePut(cfg, payload) {
+  async function remotePutMerge(cfg, payload) {
     const url = `${cfg.base}/v1/blob/${encodeURIComponent(cfg.syncId)}`;
     const resp = await fetch(url, {
       method: "PUT",
@@ -222,20 +305,38 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     if (resp.status === 401) throw new Error("unauthorized (token mismatch)");
-    if (resp.status === 409) return { ok: false, conflict: true };
     if (!resp.ok) throw new Error(`PUT failed: ${resp.status}`);
-    return { ok: true };
+
+    // Worker returns merged blob
+    return await resp.json();
   }
 
-  async function applyRemoteIfNewer(remote) {
-    const remoteUpdatedAt = Number(remote?.updatedAt || 0);
-    const remoteData = remote?.data;
+  async function applyRemoteBlob(remote, { force = false } = {}) {
+    if (!remote || typeof remote !== "object") return false;
+
+    const remoteUpdatedAt = toMs(remote.updatedAt);
+    const remoteData = remote.data;
 
     if (!remoteUpdatedAt || !remoteData || typeof remoteData !== "object") return false;
-    if (remoteUpdatedAt <= Number(appState.updatedAt || 0)) return false;
+    if (!force && remoteUpdatedAt <= toMs(appState.updatedAt)) return false;
+
+    const todos = normalizeTodos(remoteData.todos || []);
+    const deleted = normalizeDeletedMap(remoteData.deleted_task_ids);
+
+    // Drop deleted tasks locally too (server should already do it, but keep safe)
+    const filtered = [];
+    for (const t of todos) {
+      const id = toMs(t.task_id);
+      const delAt = toMs(deleted[String(id)]);
+      const score = toMs(t.task_updated_at) || id;
+      if (delAt && delAt >= score) continue;
+      filtered.push(t);
+    }
+    filtered.sort((a, b) => toMs(a.task_id) - toMs(b.task_id));
 
     appState = {
-      todos: normalizeTodos(remoteData.todos || []),
+      todos: filtered,
+      deleted_task_ids: deleted,
       selected_group: typeof remoteData.selected_group === "string" ? remoteData.selected_group : "",
       user_name: typeof remoteData.user_name === "string" ? remoteData.user_name : "",
       updatedAt: remoteUpdatedAt,
@@ -243,7 +344,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     selectedGroup = appState.selected_group || "";
 
-    // Write consolidated + mirror keys and clear dirty
     await storageSet({
       [STATE_KEY]: appState,
       todos: appState.todos,
@@ -256,13 +356,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function syncMaybe({ force = false } = {}) {
-    // Gate: only once/day (attempt-based) unless forced
     if (!force) {
-      const okToAttempt = await shouldAttemptSyncNow();
-      if (!okToAttempt) return { ran: false, message: "" };
+      const ok = await shouldAttemptSyncNow();
+      if (!ok) return { ran: false, message: "" };
     }
 
-    // Lock to avoid multiple tabs syncing at the same time
     const locked = await acquireSyncLock();
     if (!locked) return { ran: false, message: "Sync already running" };
 
@@ -275,83 +373,59 @@ document.addEventListener("DOMContentLoaded", () => {
       const dirtyRes = await storageGet([DIRTY_KEY]);
       const localDirty = !!dirtyRes[DIRTY_KEY];
 
-      let remoteOk = false;
-      let putOk = false;
-
-      // Pull remote first
-      let remote = null;
+      // 1) Pull remote (optional but useful before push)
       try {
-        remote = await remoteGet(cfg);
-        remoteOk = true;
+        const remote = await remoteGet(cfg);
+        if (remote) {
+          const applied = await applyRemoteBlob(remote, { force: false });
+          if (applied) rerenderFromState();
+        }
       } catch (e) {
         return { ran: true, message: `Sync failed: ${e?.message || e}` };
       }
 
-      // Apply remote if newer
-      let appliedRemote = false;
-      if (remote) {
-        appliedRemote = await applyRemoteIfNewer(remote);
-      }
-
-      // Push local only if local is dirty
+      // 2) Push local if dirty (server merges and returns merged state)
       if (localDirty) {
         const payload = {
-          updatedAt: Number(appState.updatedAt || 0),
+          updatedAt: toMs(appState.updatedAt) || nowMs(),
           data: {
             todos: appState.todos || [],
+            deleted_task_ids: appState.deleted_task_ids || {},
             selected_group: appState.selected_group || "",
             user_name: appState.user_name || "",
           },
         };
 
         try {
-          const res = await remotePut(cfg, payload);
-          putOk = true;
-
-          // If conflict, pull again and apply newer remote
-          if (res?.conflict) {
-            try {
-              const remote2 = await remoteGet(cfg);
-              remoteOk = true;
-              const applied2 = await applyRemoteIfNewer(remote2);
-              appliedRemote = appliedRemote || applied2;
-            } catch {
-              // ignore
-            }
-          }
+          const merged = await remotePutMerge(cfg, payload);
+          const appliedMerged = await applyRemoteBlob(merged, { force: true });
+          if (appliedMerged) rerenderFromState();
         } catch (e) {
           return { ran: true, message: `Sync failed: ${e?.message || e}` };
         }
       }
 
-      // Mark success if we reached server (GET ok is enough for once/day requirement)
-      if (remoteOk || putOk) await markSyncSuccess();
-
-      if (appliedRemote) rerenderFromState();
-
-      return { ran: true, message: appliedRemote ? "Synced (updated)" : "Synced" };
+      await markSyncSuccess();
+      return { ran: true, message: "Synced" };
     } finally {
       await releaseSyncLock();
     }
   }
 
-  // Button click: force sync immediately
-  forceSyncBtn.addEventListener("click", async () => {
-    forceSyncBtn.disabled = true;
+  syncIconBtn.addEventListener("click", async () => {
+    syncIconBtn.disabled = true;
+    syncIconBtn.style.opacity = "0.6";
     setStatus("Syncing...");
 
     const res = await syncMaybe({ force: true });
+    if (res?.message) setStatus(res.message, { clearAfterMs: 2500 });
+    else setStatus("Done", { clearAfterMs: 1500 });
 
-    if (res?.message) {
-      setStatus(res.message, { clearAfterMs: 2500 });
-    } else {
-      setStatus("Done", { clearAfterMs: 1500 });
-    }
-
-    forceSyncBtn.disabled = false;
+    syncIconBtn.disabled = false;
+    syncIconBtn.style.opacity = "0.9";
   });
 
-  // ---- TIME ----
+  // ---- ⏰ TIME ----
   function updateTime() {
     timeElement.textContent = new Date().toLocaleTimeString();
   }
@@ -359,7 +433,7 @@ document.addEventListener("DOMContentLoaded", () => {
   updateTime();
 
   // -----------------------------
-  // Your app logic (using appState)
+  // Your app logic (now with task_id + tombstones)
   // -----------------------------
   async function getTodosFromStorage() {
     return appState.todos || [];
@@ -367,6 +441,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function saveTodosToStorage(todos) {
     appState.todos = normalizeTodos(todos);
+    appState.todos.sort((a, b) => toMs(a.task_id) - toMs(b.task_id));
     await persistState({ markDirty: true });
   }
 
@@ -438,6 +513,7 @@ document.addEventListener("DOMContentLoaded", () => {
       checkbox.checked = todo.status === "completed";
       checkbox.addEventListener("change", async () => {
         todos[indexInAll].status = checkbox.checked ? "completed" : "pending";
+        todos[indexInAll].task_updated_at = nowMs();
         await saveTodosToStorage(todos);
         displayTodos(todos);
       });
@@ -454,8 +530,13 @@ document.addEventListener("DOMContentLoaded", () => {
       deleteButton.style.color = "#f00";
       deleteButton.style.cursor = "pointer";
       deleteButton.addEventListener("click", async () => {
+        const id = toMs(todos[indexInAll]?.task_id);
+        if (id) {
+          appState.deleted_task_ids[String(id)] = nowMs(); // tombstone
+        }
         todos.splice(indexInAll, 1);
         await saveTodosToStorage(todos);
+        await persistState({ markDirty: true });
         renderTabsFromTodos(todos);
         displayTodos(todos);
       });
@@ -474,9 +555,19 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const response = await fetch("todo.json");
         const seed = await response.json();
-        todos = normalizeTodos(seed);
-        appState.todos = todos;
+        const normalized = normalizeTodos(seed);
+
+        // Assign task_id for seeded tasks
+        for (const t of normalized) {
+          if (!toMs(t.task_id)) {
+            t.task_id = await generateTaskId();
+            t.task_updated_at = toMs(t.task_id);
+          }
+        }
+
+        appState.todos = normalized.sort((a, b) => toMs(a.task_id) - toMs(b.task_id));
         await persistState({ markDirty: true });
+        todos = appState.todos;
       } catch (error) {
         console.error("Error fetching todos:", error);
         todos = [];
@@ -503,7 +594,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const group = typedGroup || selectedGroup || "";
 
     const todos = await getTodosFromStorage();
-    todos.push({ task: newTask, group, status: "pending" });
+
+    const id = await generateTaskId();
+    todos.push({
+      task_id: id,
+      task: newTask,
+      group,
+      status: "pending",
+      task_updated_at: id,
+    });
+
     await saveTodosToStorage(todos);
 
     selectedGroup = group;
@@ -547,14 +647,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ---- INIT ----
   (async () => {
+    await initLastTaskId();
     await loadState();
+    await migrateStateIfNeeded();
 
-    // Local render (instant)
     await initializeTodos();
     await setupUserNameInput();
     rerenderFromState();
 
-    // Daily sync (at most once/day, even if you open new tab 100 times)
+    // Daily auto sync (at most once/day)
     const res = await syncMaybe({ force: false });
     if (res?.message) setStatus(res.message, { clearAfterMs: 1500 });
   })();
